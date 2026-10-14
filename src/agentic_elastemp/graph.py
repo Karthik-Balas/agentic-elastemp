@@ -13,15 +13,15 @@ finished VASP runs are refused by the run_step tool unless the user explicitly c
 
 import json
 
+from elastemp.base.utils import resolve_workspace
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from elastemp.agent import tools as T
-from elastemp.agent.grounding import ungrounded_numbers
-from elastemp.base.utils import resolve_workspace
+from agentic_elastemp import tools as T
+from agentic_elastemp.grounding import ungrounded_numbers
 
 MAX_VERIFY_RETRIES = 1
 CHECK_PREFIX = "[automatic number check]"
@@ -57,6 +57,8 @@ and do not quote values from memory or the literature (for example experimental 
 number you need is not in a tool result, say so.
 - Always mention every item in "flags" from read_results, and any failed or dropped runs.
 - Be concise and concrete. Use plain language a materials scientist would use; give units.
+- Your answer is shown in a plain terminal: write plain text. No Markdown (no **bold**, no backticks, \
+no # headings); use simple "-" bullets if you need a list.
 """
 
 
@@ -167,10 +169,10 @@ def _is_check(message):
 
 
 def make_claude(model=None, max_tokens=4096):
-    """ChatAnthropic configured from the environment / .env (see elastemp.agent.config)."""
+    """ChatAnthropic configured from the environment / .env (see agentic_elastemp.config)."""
     from langchain_anthropic import ChatAnthropic
 
-    from elastemp.agent.config import get_api_key, get_model
+    from agentic_elastemp.config import get_api_key, get_model
 
     return ChatAnthropic(model=get_model(model), api_key=get_api_key(), max_tokens=max_tokens)
 

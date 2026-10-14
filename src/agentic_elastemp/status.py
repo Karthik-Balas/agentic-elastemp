@@ -4,6 +4,7 @@ No LLM here. The agent calls ``project_status`` as a tool, but the answer is com
 the files in the project folder, so it is the same every time.
 """
 
+import re
 from dataclasses import asdict, dataclass, field
 
 from elastemp.base.strain_analysis import MIN_FIT_POINTS
@@ -21,7 +22,7 @@ from elastemp.base.utils import (
 from elastemp.dynamic.deformations import HIGHTEMP_DIR, PHONON_DIR
 from elastemp.validation.convergence import validate_vasp_run
 
-MAX_LISTED = 8  # folders listed per category, to keep tool output short
+MAX_FAILED_LISTED = 20  # failed runs listed individually (with reasons) before summarising the rest
 
 
 @dataclass
@@ -30,8 +31,8 @@ class Stage:
     kind: str  # "step" (an elastemp command) or "vasp" (runs the user submits)
     status: str  # "done", "partial", "not started", "blocked"
     detail: str = ""
-    failed: list = field(default_factory=list)
-    not_run: list = field(default_factory=list)
+    failed: list = field(default_factory=list)  # "folder: reason" for each failed run
+    not_run: list = field(default_factory=list)  # compact summary per deformation folder
 
 
 def _run_state(folder):
@@ -54,12 +55,13 @@ def _vasp_stage(name, folders, ws, *, tolerate_failures=False, per_group=None):
     states = {f: _run_state(f) for f in folders}
     converged = [f for f, s in states.items() if s == "converged"]
     failed = [f"{f.relative_to(ws)}: {s[len('failed: ') :]}" for f, s in states.items() if s.startswith("failed")]
-    not_run = [str(f.relative_to(ws)) for f, s in states.items() if s == "not run"]
-    detail = f"{len(converged)} of {len(folders)} converged, {len(failed)} failed, {len(not_run)} not run"
+    not_run = _summarise_by_deformation([f for f, s in states.items() if s == "not run"], ws)
+    n_not_run = sum(1 for s in states.values() if s == "not run")
+    detail = f"{len(converged)} of {len(folders)} converged, {len(failed)} failed, {n_not_run} not run"
 
     if len(converged) == len(folders):
         status = "done"
-    elif not_run:
+    elif n_not_run:
         status = "partial"
     elif tolerate_failures and per_group:
         short = [g for g, fs in per_group.items() if sum(states[f] == "converged" for f in fs) < MIN_FIT_POINTS]
@@ -70,7 +72,30 @@ def _vasp_stage(name, folders, ws, *, tolerate_failures=False, per_group=None):
             detail += " (failed points will be dropped from the fit)"
     else:
         status = "blocked"
-    return Stage(name, "vasp", status, detail, failed[:MAX_LISTED], not_run[:MAX_LISTED])
+    if len(failed) > MAX_FAILED_LISTED:
+        failed = failed[:MAX_FAILED_LISTED] + [f"... and {len(failed) - MAX_FAILED_LISTED} more failed runs"]
+    return Stage(name, "vasp", status, detail, failed, not_run)
+
+
+def _summarise_by_deformation(folders, ws):
+    """Group run folders by deformation: 'deformation-2: all 7 strains' or 'deformation-2: strain-3, strain-5'."""
+    groups = {}
+    for folder in folders:
+        parts = folder.relative_to(ws).parts
+        groups.setdefault(parts[0], []).append("/".join(parts[1:]))
+    out = []
+    for deformation, runs in groups.items():
+        total = len(list((ws / deformation).glob("strain-*")))
+        if len(runs) == total:
+            out.append(f"{deformation}: all {total} strains")
+        else:
+            out.append(f"{deformation}: {', '.join(sorted(runs, key=_strain_number))}")
+    return out
+
+
+def _strain_number(run):
+    match = re.search(r"strain-(\d+)", run)
+    return int(match.group(1)) if match else 0
 
 
 def _step_stage(name, done, detail=""):

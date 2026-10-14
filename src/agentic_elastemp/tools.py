@@ -10,13 +10,13 @@ import math
 import re
 
 import pandas as pd
-
-from elastemp.agent.status import project_status
 from elastemp.base.utils import RESULTS_DIR, deformation_dir, resolve_workspace
 from elastemp.cli import OPERATIONS, run_operation
 from elastemp.dynamic.deformations import HIGHTEMP_DIR, PHONON_DIR
 from elastemp.exceptions import ElastempError
 from elastemp.validation.convergence import validate_vasp_run
+
+from agentic_elastemp.status import project_status
 
 # Steps that delete or overwrite folders that may hold finished VASP runs:
 # step -> glob patterns (relative to the project folder) of the run folders it replaces.

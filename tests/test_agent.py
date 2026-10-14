@@ -5,20 +5,16 @@ The LLM is replaced by a scripted chat model, so these tests need no API key and
 
 import json
 
-import pytest
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from pymatgen.core import Lattice, Structure
 
-pytest.importorskip("langgraph")
-
-from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E402
-from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
-from langchain_core.outputs import ChatGeneration, ChatResult  # noqa: E402
-from pymatgen.core import Lattice, Structure  # noqa: E402
-
-from elastemp.agent.graph import ask, build_graph  # noqa: E402
-from elastemp.agent.grounding import ungrounded_numbers  # noqa: E402
-from elastemp.agent.status import project_status  # noqa: E402
-from elastemp.agent.tools import tool_inspect_run, tool_run_step  # noqa: E402
-from test_convergence import _vasprun  # noqa: E402
+from agentic_elastemp.graph import ask, build_graph
+from agentic_elastemp.grounding import ungrounded_numbers
+from agentic_elastemp.status import project_status
+from agentic_elastemp.tools import tool_inspect_run, tool_run_step
+from vasprun_fixture import _vasprun
 
 STRAINS = [-0.03, -0.02, -0.01, 0.0, 0.01, 0.02, 0.03]
 
@@ -85,8 +81,20 @@ def test_status_lists_runs_still_to_do(tmp_path):
     report = project_status(ws)
     static = report["stages"][1]
     assert static["status"] == "partial"
-    assert static["not_run"] == ["deformation-2/strain-5"]
+    assert static["not_run"] == ["deformation-2: strain-5"]
     assert report["next_action"].startswith("Run VASP")
+
+
+def test_status_summarises_unrun_folders_completely(tmp_path):
+    ws = _project(tmp_path, vasp=False)  # straight after make_elastic: nothing run yet
+    static = project_status(ws)["stages"][1]
+    assert static["detail"] == "0 of 28 converged, 0 failed, 28 not run"
+    assert static["not_run"] == [
+        "deformation-1: all 7 strains",
+        "deformation-2: all 7 strains",
+        "deformation-3: all 7 strains",
+        "deformation-bulk: all 7 strains",
+    ]
 
 
 def test_status_blocks_when_a_deformation_has_too_few_points(tmp_path):
@@ -177,10 +185,26 @@ def test_conversation_memory_across_turns(tmp_path):
     assert [m.content for m in model.received[1] if isinstance(m, HumanMessage)] == ["hi", "what did I say?"]
 
 
+def test_import_does_not_change_elastemp():
+    import elastemp
+
+    import agentic_elastemp
+
+    assert agentic_elastemp.__version__ == "0.1.0"
+    assert not hasattr(elastemp, "agent")
+
+
 def test_cli_without_api_key_explains_what_to_do(tmp_path, monkeypatch, capsys):
-    from elastemp.agent.cli import main
+    from agentic_elastemp.cli import main
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     assert main(["--workdir", str(tmp_path), "--ask", "hi"]) == 1
     assert ".env.example" in capsys.readouterr().err
+
+
+def test_cli_strips_markdown():
+    from agentic_elastemp.cli import plain
+
+    text = "## Status\n**Done:** `make_elastic` ran.\n- **Next:** run VASP in `deformation-*/strain-*`."
+    assert plain(text) == "Status\nDone: make_elastic ran.\n- Next: run VASP in deformation-*/strain-*."
